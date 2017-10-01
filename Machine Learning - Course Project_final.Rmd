@@ -1,0 +1,283 @@
+---
+title: "Machine Learning - Course Project"
+author: "Aline Riquetti"
+date: "1 de outubro de 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## How you the model was built
+#### The model was built with the intention of predict in which class an observation fits. The class is a factor variable named as "classe" and represent the answer of participants in a experiment where participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in 5 different fashions: 
+#####- exactly according to the specification (Class A) 
+#####- throwing the elbows to the front (Class B) 
+#####- lifting the dumbbell only halfway (Class C) 
+#####- lowering the dumbbell only halfway (Class D) 
+#####- throwing the hips to the front (Class E)
+
+####To predict which class an observation belongs to the other variables provided were used, as appropriate, applying some transformations in the data, if necessary.
+
+#### Finally, 6 prediction algorithms were built, and from these, a last model was obtained based on the predictions obtained from the previously adjusted models;
+
+## How you the cross validation was used
+#### Cross-validation was performed by sampling our training data set randomly without replacement into 2 subsamples:
+#####-Training data (70% of the original Training data set) 
+#####-Testing data  (30% of the original Training data set) 
+#####-Validation data  (20 observation of of the original Testing data set) 
+####Our models will be fitted on the Training data set, and tested on the Testing data. Once the combined predictors model was built, he was used to predict the original Testing dataset, now called validation dataset
+
+## Expected out-of-sample error
+#### The expected out-of-sample error corresponded to the Accuracy in the cross-validation data.
+#### Accuracy is the proportion of correct classified observation over the total sample in the Testing data set.
+
+## The choises made
+#### To better fit the models some transformation are necessary in the original data. 
+##### Drop the variable with to many missing
+##### Drop identifier variables
+##### Drop variable with low variability
+##### Transform variables highly correlated in two principal components
+
+#### Finaly, the models were built. To obtain the best model, that is, with greater accuracy, 7 models was built. 6 of the using different algorithms, and the last model, using the prediction to finaly adjust the final result.
+
+## Results:
+
+### Load the necessaries packages
+
+```{r packages}
+library(caret)
+library(gridExtra)
+library(rpart)
+library(rattle)
+library(e1071)
+library(klaR)
+library(randomForest)
+```
+
+
+### Download the data
+
+```{r Download}
+urlTrain <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+urlTest <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+download.file(urlTrain, destfile = "pml-training.csv")
+download.file(urlTest, destfile = "pml-testing.csv")
+```
+
+### Read the data and make the study reproducible
+##### The testing data will be user as validation data since the model build need a sample to test how accurately a predictive model is
+
+```{r Read}
+training_testing <- read.csv("pml-training.csv", na.strings=c("NA","#DIV/0!",""))
+validation <- read.csv("pml-testing.csv", na.strings=c("NA","#DIV/0!",""))
+
+set.seed(1235)
+```
+
+
+###  Partitioning the  sample of data in training and testing
+```{r Cross_validation}
+inTrain <- createDataPartition(y=training_testing$classe, p=0.7, list=FALSE)
+training <-training_testing[inTrain, ]
+testing <- training_testing[-inTrain, ]
+str(training)
+dim(training); dim(testing)
+```
+
+### Explore Target variable 
+```{r Explore_Target, echo=TRUE}
+counts <- table(training$classe)
+barplot(counts, main="Training Data - Classe distribution", xlab="Number of observation",
+col=c("darkblue","darkred","darkgreen", "orange", "purple"))
+```
+
+
+### Cleaning the data
+
+#### It's possible to see the data has a lot os missing values. Some variables can't be used because the proportion of missing values is too hight.
+#### Lets keep only the variables that have missing proportion less than 30%
+```{r Remove_missing}
+prop_missing<-sapply(training, function(x) sum(is.na(x))/nrow(training))
+var_no_missing = data.frame(var=which(prop_missing<0.3, arr.ind=T))
+training2 <- training[, var_no_missing$var]
+dim(training2)
+```
+
+#### Eliminate no variability. Lets drop variable with no variability as well as the identification variables.
+```{r near_Zero_ID}
+nearzero <- nearZeroVar(training2, saveMetrics = TRUE)
+nearzero
+table(training2$new_window)
+training2 <- training2[,-6]
+training2 <- training2[, -c(1:5)]
+dim(training2)
+```
+
+#### Convert variable integer to numerics
+```{r Integer_to_numeric}
+nums <- sapply(training2, is.integer)
+integer = data.frame(integ=which(nums==TRUE))
+training2[integer$integ] <- lapply(training2[integer$integ], as.numeric)
+
+str(training2); dim(training2)
+```
+
+
+### Pricipal component analysis
+
+####     Check variable that are highly correlated with each other. It means a correlation coefiecient greater than 0.9
+```{r Correlation}
+Cor<-abs(cor(training2[,c(-54)]))
+diag(Cor)<-0
+correlation = data.frame(which(Cor>0.90, arr.ind=T))
+cor<-unique(correlation[,"row"])
+which(Cor>0.90, arr.ind=T)
+```
+
+
+#### Plot some ghaphs to se how correlated some of theses variables are
+
+```{r Plot1}
+plot1<-qplot(total_accel_belt, roll_belt, colour=classe, data=training2)
+plot2<-qplot(accel_belt_y, roll_belt, colour=classe, data=training2)
+plot3<-qplot(accel_belt_z, roll_belt, colour=classe, data=training2)
+plot4<-qplot(accel_belt_x, pitch_belt, colour=classe, data=training2)
+grid.arrange(plot1, plot2, plot3, plot4, ncol=2)
+```
+
+```{r Plot2}
+plot5<-qplot(accel_belt_y, total_accel_belt, colour=classe, data=training2)
+plot6<-qplot(accel_belt_z, total_accel_belt, colour=classe, data=training2)
+plot7<-qplot(accel_belt_z, accel_belt_y, colour=classe, data=training2)
+plot8<-qplot(gyros_arm_y, gyros_arm_x, colour=classe, data=training2)
+grid.arrange(plot5, plot6, plot7, plot8, ncol=2)
+```
+
+#### To avoid multicolinearity lets use PCA only for the variables that had high correlation with the others, reducing the data dimension
+
+```{r PCA}
+prComp<-prcomp(log10(abs(training2[,cor])+1))
+plot(prComp$x[,1], prComp$x[,2])
+preProc<-preProcess(log10(abs(training2[,cor])+1),method="pca",pcaComp=2)
+PCA_train<-predict(preProc, log10(abs(training2[,cor])+1))
+training3<-cbind(training2[,-cor],PCA_train)
+str(training3); dim(training3)
+```
+
+### Without look to testing dataset lets make the same transformation we did for training dataset
+
+```{r transforming_testing}
+testing2 <- testing[, var_no_missing$var]
+testing2 <- testing2[,-6]
+testing2 <- testing2[, -c(1:5)]
+testing2[integer$integ] <- lapply(testing2[integer$integ], as.numeric)
+PCA_test<-predict(preProc, log10(abs(testing2[,cor])+1))
+testing3<-cbind(testing2[,-cor],PCA_test)
+```
+
+### Due to the poor performance obtained to adjust the models, the default parameters of the cross validation have been changed. The method of cross-validation was maintained, with the number of interactions being altered and allowing parallelism
+```{r Options_cv}
+options <- trainControl(method = "cv", number = 7, allowParallel=TRUE)
+```
+
+### Adjusting different prediction algorithms.
+#### Decision tree
+
+```{r Decision_tree}
+modFitA <- rpart(training3$classe ~ ., data=training3, method="class")
+fancyRpartPlot(modFitA)
+predFitA<-predict(modFitA, testing3, type = "class")
+mA<-confusionMatrix(testing3$classe, predFitA)
+```
+
+#### Random Forest
+
+```{r Random_Forest}
+modFitB <- randomForest(classe ~. , data= training3)
+predFitB<-predict(modFitB, testing3)
+mB<-confusionMatrix(testing3$classe, predFitB)
+```
+
+#### Boosting
+
+```{r Boosting}
+modFitC <- train(classe ~ ., data = training3, method = "LogitBoost", trControl= options)
+predFitC<-predict(modFitC, testing3)
+mC<-confusionMatrix(testing3$classe, predFitC)
+```
+
+#### Linear Descriminant Analysis
+
+```{r lda}
+modFitD <- train(classe~., data=training3, method="lda", trControl= options)
+predFitD<-predict(modFitD, testing3)
+mD<-confusionMatrix(testing3$classe, predFitD)
+```
+
+#### Naive Bayes
+```{r Naive_bayes, message=FALSE, warning=FALSE}
+modFitE <- train(classe~., data=training3, method="nb", trControl= options)
+predFitE<-predict(modFitE, testing3)
+mE<-confusionMatrix(testing3$classe, predFitE)
+```
+
+
+#### Bagging
+```{r bagging}
+modFitF <- train(classe~., data=training3, method="treebag", trControl= options)
+predFitF<-predict(modFitF, testing3)
+mF<-confusionMatrix(testing3$classe, predFitF)
+```
+
+### Comparing results of algorithms
+
+```{r Comparing}
+algorithm <- c("Decision Tree", "Random Forest","LogitBoost","Linear Descriminant Analysis","Naive Bayes", "Bagging")
+Accuracy <- c(mA$overall['Accuracy'],  mB$overall['Accuracy'],   mC$overall['Accuracy'],
+              mD$overall['Accuracy'],  mE$overall['Accuracy'],   mF$overall['Accuracy'])
+results <- cbind(algorithm,Accuracy)
+results
+```
+
+### Combining predictors
+#### Build a dataset with the results of predictions.
+##### Boosting won't be used because generated a lot os missing value
+
+```{r Combined_results}
+combDF<-data.frame(predA=predFitA, predB=predFitB, predD=predFitD, 
+                   predE=predFitE, predF=predFitF, classe=testing3$classe)
+```
+
+#### Use the Random Forest to adjust a model based in the result of the previous models (modFitComb)
+
+```{r RF_comb}
+modFitComb <- randomForest(classe ~. , data= combDF)
+```
+
+### Without look to validation dataset lets make the same transformation we did for training dataset
+```{r transforming_validation}
+validation2 <- validation[, var_no_missing$var]
+validation2 <- validation2[,-6]
+validation2 <- validation2[, -c(1:5)]
+validation2[integer$integ] <- lapply(validation2[integer$integ], as.numeric)
+PCA_valid<-predict(preProc, log10(abs(validation2[,cor])+1))
+validation3<-cbind(validation2[,-cor],PCA_valid)
+```
+
+### Builing a dataset for validation with the prediction of each algorithm
+
+```{r prediict_algor_validation, message=FALSE, warning=FALSE}
+predAV<-predict(modFitA, validation3, type = "class");
+predBV<-predict(modFitB, validation3);
+predCV<-predict(modFitC, validation3); predDV<-predict(modFitD, validation3);
+predEV<-predict(modFitE, validation3); predFV<-predict(modFitF, validation3);
+CombValid<-data.frame(predA=predAV, predB=predBV, predD=predDV, predE=predEV, predF=predFV)
+```
+
+### Using the combined predictors (modFitComb) to predict classe for validation dataset
+```{r predict_validation}
+predFitComb<-predict(modFitComb, CombValid)
+predFitComb
+```
